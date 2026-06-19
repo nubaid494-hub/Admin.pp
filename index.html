@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pitha Control Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary: #8B4513;
+  --secondary: #D2691E;
+  --light: #FFF8F0;
+  --dark: #1A1A1A;
+  --success: #28a745;
+  --danger: #dc3545;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+body { background: var(--light); color: #333; display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Responsive Header / Mobile Navigation */
+.admin-nav {
+  background: var(--primary);
+  display: flex;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+.admin-nav button {
+  color: white;
+  background: transparent;
+  border: none;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.admin-nav button.active {
+  background: var(--secondary);
+}
+
+.main-content { padding: 15px; flex: 1; }
+.admin-tab { display: none; }
+.admin-tab.active { display: block; }
+
+.admin-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+h3 { margin-bottom: 12px; font-size: 16px; border-bottom: 2px solid var(--light); padding-bottom: 5px;}
+
+input, select, text { width: 100%; padding: 12px; margin-top: 5px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; }
+.btn { width: 100%; padding: 12px; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; }
+.btn-success { background: var(--success); }
+.btn-danger { background: var(--danger); }
+
+/* Scrollable Responsive Tables for Mobile */
+.table-wrapper { width: 100%; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 500px; }
+th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+th { background: #f8f9fa; }
+
+.product-row { display: flex; align-items: center; justify-content: space-between; padding: 10px; background: white; margin-bottom: 8px; border-radius: 8px; border-left: 4px solid var(--secondary); }
+.product-thumb { width: 45px; height: 45px; object-fit: cover; border-radius: 6px; margin-right: 10px; }
+</style>
+</head>
+<body>
+
+<div class="admin-nav">
+  <button onclick="switchTab('products')" id="tab-products" class="active">🌾 Manage Items</button>
+  <button onclick="switchTab('orders')" id="tab-orders">📦 Orders</button>
+</div>
+
+<div class="main-content">
+  <div id="products" class="admin-tab active">
+    <div class="admin-card">
+      <h3 id="formActionTitle">Add a New Traditional Pitha</h3>
+      <form id="pithaForm" onsubmit="saveProduct(event)">
+        <input type="hidden" id="editProductId" value="">
+        <label>Pitha Title Name</label>
+        <input type="text" id="pithaName" required placeholder="e.g., Dudh Chitoi">
+        
+        <label>Price Rate (৳)</label>
+        <input type="number" id="pithaPrice" required placeholder="e.g., 140">
+        
+        <label>Menu Category</label>
+        <select id="pithaCategory">
+          <option value="Traditional">Traditional</option>
+          <option value="Sweet">Sweet</option>
+          <option value="Savory">Savory</option>
+        </select>
+        
+        <label>Image URL Source</label>
+        <input type="text" id="pithaImage" placeholder="https://via.placeholder.com/250x200">
+        
+        <button type="submit" class="btn btn-success" id="submitProductBtn">Save Product Setup</button>
+      </form>
+    </div>
+
+    <div class="admin-card">
+      <h3>Active Storefront Items</h3>
+      <div id="mobileInventoryContainer"></div>
+    </div>
+  </div>
+
+  <div id="orders" class="admin-tab">
+    <div class="admin-card">
+      <h3>Incoming Pipeline Orders</h3>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Customer</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="allOrdersTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const fallbackBase = [
+  { id: 1, name: "Patisapta", price: 120, category: "Sweet", image: "https://via.placeholder.com/250x200" },
+  { id: 2, name: "Bhapa Pitha", price: 100, category: "Traditional", image: "https://via.placeholder.com/250x200" },
+  { id: 3, name: "Chitoi Pitha", price: 80, category: "Savory", image: "https://via.placeholder.com/250x200" }
+];
+
+let customProducts = JSON.parse(localStorage.getItem("customProducts")) || fallbackBase;
+
+function switchTab(tabId) {
+  document.querySelectorAll(".admin-tab").forEach(tab => tab.classList.remove("active"));
+  document.querySelectorAll(".admin-nav button").forEach(btn => btn.classList.remove("active"));
+  document.getElementById(tabId).classList.add("active");
+  document.getElementById("tab-" + tabId).classList.add("active");
+  refreshDataState();
+}
+
+function refreshDataState() {
+  customProducts = JSON.parse(localStorage.getItem("customProducts")) || fallbackBase;
+  const loadedOrders = JSON.parse(localStorage.getItem("orders")) || [];
+  
+  renderInventory(customProducts);
+  renderOrders(loadedOrders);
+}
+
+function renderInventory(productsList) {
+  const container = document.getElementById("mobileInventoryContainer");
+  container.innerHTML = "";
+  productsList.forEach(prod => {
+    container.innerHTML += `
+      <div class="product-row">
+        <div style="display:flex; align-items:center;">
+          <img src="${prod.image}" class="product-thumb">
+          <div>
+            <strong>${prod.name}</strong><br>
+            <small style="color:#777">৳${prod.price} | ${prod.category}</small>
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-danger" style="padding:6px 10px; width:auto; font-size:12px;" onclick="deleteProduct(${prod.id})">Delete</button>
+        </div>
+      </div>
+    `;
+  });
+}
+
+function renderOrders(orders) {
+  const tbody = document.getElementById("allOrdersTable");
+  tbody.innerHTML = "";
+  if(orders.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;">No processing requests.</td></tr>`;
+    return;
+  }
+  orders.forEach((order, index) => {
+    tbody.innerHTML += `
+      <tr>
+        <td>#${order.id}</td>
+        <td><strong>${order.customerName}</strong><br><small>${order.customerPhone}</small></td>
+        <td><strong>${order.status}</strong></td>
+        <td>
+          <select style="margin:0; padding:4px; font-size:12px;" onchange="updateOrderStatus(${index}, this.value)">
+            <option value="Pending" ${order.status==='Pending'?'selected':''}>Pending</option>
+            <option value="Accepted" ${order.status==='Accepted'?'selected':''}>Accepted</option>
+            <option value="Delivered" ${order.status==='Delivered'?'selected':''}>Delivered</option>
+          </select>
+        </td>
+      </tr>
+    `;
+  });
+}
+
+function updateOrderStatus(index, newStatus) {
+  let orders = JSON.parse(localStorage.getItem("orders")) || [];
+  orders[index].status = newStatus;
+  localStorage.setItem("orders", JSON.stringify(orders));
+  refreshDataState();
+}
+
+function saveProduct(e) {
+  e.preventDefault();
+  const name = document.getElementById("pithaName").value;
+  const price = Number(document.getElementById("pithaPrice").value);
+  const category = document.getElementById("pithaCategory").value;
+  let image = document.getElementById("pithaImage").value || "https://via.placeholder.com/250x200";
+
+  // Re-read current list to prevent collision errors
+  customProducts = JSON.parse(localStorage.getItem("customProducts")) || fallbackBase;
+  
+  // Add item with clean ID metric
+  customProducts.push({ id: Date.now(), name, price, category, image });
+  
+  localStorage.setItem("customProducts", JSON.stringify(customProducts));
+  document.getElementById("pithaForm").reset();
+  refreshDataState();
+  alert("Product successfully added and synchronized!");
+}
+
+function deleteProduct(id) {
+  if(confirm("Delete this pitha layout?")) {
+    customProducts = JSON.parse(localStorage.getItem("customProducts")) || fallbackBase;
+    customProducts = customProducts.filter(p => p.id !== id);
+    localStorage.setItem("customProducts", JSON.stringify(customProducts));
+    refreshDataState();
+  }
+}
+
+window.onload = function() {
+  refreshDataState();
+};
+</script>
+</body>
+</html>
